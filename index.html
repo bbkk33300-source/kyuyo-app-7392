@@ -30,6 +30,8 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .actions button{flex:1}
 .hidden{display:none!important}
+#printArea{display:none}
+@media print{body{background:#fff;padding:0}body>*{display:none!important}#printArea{display:block!important;padding:10mm;color:#000}#printArea .slip{page-break-after:always;break-after:page;border:1px solid #999;padding:12mm;margin:0 0 8mm}#printArea .slip:last-child{page-break-after:auto;break-after:auto}#printArea h2{font-size:20px}#printArea table{font-size:14px}#printArea th,#printArea td{padding:9px;border-bottom:1px solid #bbb}#printArea .amount{font-size:22px;font-weight:bold;text-align:right;margin-top:16px}}
 @media(max-width:420px){.grid{grid-template-columns:1fr 1fr}.row{gap:6px}}
 </style>
 </head>
@@ -66,7 +68,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 </div></section>
 <section id="summary" class="tab hidden">
 <div class="card"><h2>月別給与集計</h2><label>集計する月</label><input id="sumMonth" type="month">
-<div id="summaryOut"></div></div>
+<div id="summaryOut"></div><div class="actions"><button class="primary" id="printAll">8名分をまとめて印刷</button></div><p class="small">スタッフごとの「明細をコピー」で、給与明細をLINEなどに貼り付けられます。</p></div>
 <div class="card"><h2>計算ルール</h2><p class="small">22:00〜翌5:00は深夜割増25%を加算します。通常時間は設定した時給、深夜時間は時給×1.25で計算します。残業割増・法定休日割増・税金等は含みません。</p></div>
 </section>
 <section id="backup" class="tab hidden">
@@ -78,6 +80,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 <div class="card"><h2>データについて</h2><p class="small">このアプリは入力内容を外部サーバーへ送信しません。ブラウザのデータを消すと、保存内容も消える場合があります。</p></div>
 </section>
 </main>
+<div id="printArea"></div>
 <script>
 const KEY='kantanKyuyo_v1';
 let data=load(), editingStaff=null;
@@ -114,9 +117,16 @@ function render(){
  let month=document.getElementById('workMonth').value||ym(),list=data.shifts.filter(s=>s.date.startsWith(month)).sort((a,b)=>a.date.localeCompare(b.date));
  document.getElementById('entries').innerHTML=list.length?list.map(s=>{let st=data.staff.find(x=>x.id===s.staffId),c=calc(s);return `<div class="entry"><strong>${esc(s.date)}　${esc(st?.name||'削除済み')}</strong><div>${esc(s.start)}〜${esc(s.end)}　休憩${s.break}分</div><div class="small">通常 ${ (c.normal/60).toFixed(1)}時間／深夜 ${(c.night/60).toFixed(1)}時間</div><b>${money(wage(s))}</b><div class="actions"><button class="danger" onclick="delShift('${s.id}')">削除</button></div></div>`}).join(''):'<p class="muted">この月の勤務はまだありません。</p>';
  document.getElementById('staffList').innerHTML=data.staff.map(s=>`<div class="entry"><strong>${esc(s.name)}　${money(s.rate)}/時</strong><div class="actions"><button onclick="editStaff('${s.id}')">編集</button><button class="danger" onclick="delStaff('${s.id}')">削除</button></div></div>`).join('')||'<p class="muted">スタッフを登録してください。</p>';
- let sm=document.getElementById('sumMonth').value||ym(),sh=data.shifts.filter(s=>s.date.startsWith(sm)),out=data.staff.map(st=>{let own=sh.filter(s=>s.staffId===st.id),normal=0,night=0,total=0;own.forEach(s=>{let c=calc(s);normal+=c.normal;night+=c.night;total+=wage(s)});return {st,normal,night,total}}),all=out.reduce((a,x)=>a+x.total,0);
- document.getElementById('summaryOut').innerHTML=out.length?out.map(x=>`<div class="entry"><strong>${esc(x.st.name)}</strong><div>通常 ${(x.normal/60).toFixed(1)}時間／深夜 ${(x.night/60).toFixed(1)}時間</div><div class="total">${money(x.total)}</div></div>`).join('')+`<hr><p>全員合計</p><div class="total">${money(all)}</div>`:'<p class="muted">スタッフを登録してください。</p>';
+ let sm=document.getElementById('sumMonth').value||ym(),sh=data.shifts.filter(s=>s.date.startsWith(sm)),out=data.staff.map(st=>{let own=sh.filter(s=>s.staffId===st.id),normal=0,night=0,total=0,days=new Set();own.forEach(s=>{let c=calc(s);normal+=c.normal;night+=c.night;total+=wage(s);days.add(s.date)});let normalPay=normal*st.rate/60,nightBase=night*st.rate/60,premium=night*st.rate*.25/60;return {st,own,days:days.size,normal,night,normalPay,nightBase,premium,total}}),all=out.reduce((a,x)=>a+x.total,0);
+ document.getElementById('summaryOut').innerHTML=out.length?out.map((x,i)=>`<div class="entry"><strong>${esc(x.st.name)}</strong><div>出勤 ${x.days}日　通常 ${(x.normal/60).toFixed(1)}時間／深夜 ${(x.night/60).toFixed(1)}時間</div><div class="total">${money(x.total)}</div><div class="actions"><button onclick="copySlip(${i})">明細をコピー</button></div></div>`).join('')+`<hr><p>全員合計</p><div class="total">${money(all)}</div>`:'<p class="muted">スタッフを登録してください。</p>';
+ document.getElementById('printArea').innerHTML=out.map(x=>slipHtml(x,sm)).join('');
+ window.currentSlips=out.map(x=>slipText(x,sm));
 }
+
+function slipText(x,month){return `給与明細\n対象月：${month}\nスタッフ：${x.st.name}\n出勤日数：${x.days}日\n通常勤務：${(x.normal/60).toFixed(1)}時間　${money(x.normalPay)}\n深夜勤務：${(x.night/60).toFixed(1)}時間　${money(x.nightBase)}\n深夜割増（25%）：${money(x.premium)}\n支給合計：${money(x.total)}\n※税金・社会保険・交通費等は含みません。`}
+function slipHtml(x,month){return `<section class="slip"><h2>給与明細</h2><p>対象月：${esc(month)}</p><p>スタッフ：<b>${esc(x.st.name)}</b></p><p>出勤日数：${x.days}日</p><table><tr><th>項目</th><th>時間</th><th>金額</th></tr><tr><td>通常勤務</td><td>${(x.normal/60).toFixed(1)}時間</td><td>${money(x.normalPay)}</td></tr><tr><td>深夜勤務（基本分）</td><td>${(x.night/60).toFixed(1)}時間</td><td>${money(x.nightBase)}</td></tr><tr><td>深夜割増（25%）</td><td>—</td><td>${money(x.premium)}</td></tr></table><div class="amount">支給合計：${money(x.total)}</div><p class="small">※税金・社会保険・交通費・残業割増・法定休日割増等は含みません。</p></section>`}
+window.copySlip=async i=>{let text=window.currentSlips?.[i];if(!text)return;try{await navigator.clipboard.writeText(text);alert('給与明細をコピーしました。LINEなどに貼り付けできます。')}catch(e){let t=document.createElement('textarea');t.value=text;document.body.append(t);t.select();let ok=document.execCommand('copy');t.remove();alert(ok?'給与明細をコピーしました。':'コピーできませんでした。ブラウザのコピー機能を使ってください。')}};
+document.getElementById('printAll').onclick=()=>{if(!data.staff.length){alert('スタッフを登録してください。');return}window.print()};
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 document.getElementById('add').onclick=()=>{let date=document.getElementById('date').value,staffId=document.getElementById('worker').value,start=document.getElementById('start').value,end=document.getElementById('end').value,br=Number(document.getElementById('break').value||0);if(!date||!staffId||!start||!end){alert('日付・スタッフ・時刻を入力してください。');return}if(br<0||br>1440){alert('休憩時間を確認してください。');return}data.shifts.push({id:crypto.randomUUID(),date,staffId,start,end,break:br});document.getElementById('workMonth').value=date.slice(0,7);save();alert('勤務を登録しました')};
 document.getElementById('saveStaff').onclick=()=>{let name=document.getElementById('staffName').value.trim(),rate=Number(document.getElementById('staffRate').value);if(!name||!Number.isFinite(rate)||rate<=0){alert('名前と正しい時給を入力してください。');return}if(editingStaff){let s=data.staff.find(x=>x.id===editingStaff);s.name=name;s.rate=rate;editingStaff=null;document.getElementById('saveStaff').textContent='スタッフを追加'}else{if(data.staff.length>=8){alert('登録できるスタッフは8人までです。');return}data.staff.push({id:crypto.randomUUID(),name,rate})}document.getElementById('staffName').value='';document.getElementById('staffRate').value='';save()};
