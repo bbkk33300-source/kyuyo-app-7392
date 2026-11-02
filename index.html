@@ -48,11 +48,11 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 <div class="grid">
 <div><label>勤務日</label><input id="date" type="date"></div>
 <div><label>スタッフ</label><select id="worker"></select></div>
-<div><label>出勤時刻</label><input id="start" type="time" step="1800" value="16:00"></div>
-<div><label>退勤時刻</label><input id="end" type="time" step="1800" value="22:00"></div>
+<div><label>出勤時刻</label><select id="start"></select></div>
+<div><label>退勤時刻</label><select id="end"></select></div>
 <div><label>休憩（分）</label><input id="break" type="number" min="0" step="15" value="0"></div>
 </div>
-<p class="small">退勤が出勤より早い時刻の場合は、翌日の退勤として計算します。休憩時間は実際に取った時間を入力してください。</p>
+<p class="small">出勤は15:00〜20:00、退勤は20:00〜翌2:00まで30分刻みで選べます。翌0:00以降は翌日表記で表示します。休憩時間は実際に取った時間を入力してください。</p>
 <div class="actions"><button class="primary" id="add">勤務を登録</button></div>
 </div>
 <div class="card"><h2>登録済みの勤務</h2><div class="row"><div><label>表示する月</label><input id="workMonth" type="month"></div></div><div id="entries"></div></div>
@@ -86,20 +86,26 @@ function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
 function today(){let d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function ym(){return today().slice(0,7)}
 document.getElementById('date').value=today();
+function fillTimes(id, values, selected){
+ const el=document.getElementById(id);
+ el.innerHTML=values.map(v=>`<option value="${v}">${v.startsWith('24:')?'翌0:'+v.slice(3):v.startsWith('25:')?'翌1:'+v.slice(3):v.startsWith('26:')?'翌2:'+v.slice(3):v}</option>`).join('');
+ el.value=selected;
+}
+const starts=[];
+for(let m=15*60;m<=20*60;m+=30) starts.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));
+const ends=[];
+for(let m=20*60;m<=26*60;m+=30) ends.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));
+fillTimes('start',starts,'16:00'); fillTimes('end',ends,'22:00');
 document.getElementById('workMonth').value=ym();document.getElementById('sumMonth').value=ym();
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.tab').forEach(x=>x.classList.add('hidden'));document.getElementById(b.dataset.tab).classList.remove('hidden');render()});
 function money(n){return Math.round(n).toLocaleString('ja-JP')+'円'}
 function mins(t){let [h,m]=t.split(':').map(Number);return h*60+m}
 function calc(s){
- let a=mins(s.start),b=mins(s.end);if(b<=a)b+=1440;
- let total=b-a-Math.max(0,Number(s.break)||0),normal=0,night=0;
- for(let x=a;x<b;x++){let m=x%1440;if(x-a>=total+Math.max(0,Number(s.break)||0))break;if(m>=1320||m<300)night++;else normal++}
- // 休憩は勤務の最後から控除する簡易計算。休憩時刻を指定しないため、深夜帯に重なる場合は深夜分から控除。
- let br=Math.max(0,Number(s.break)||0),cutN=0,cutD=0;
- // 分単位で勤務区間を走査し、末尾から休憩分を除外
- let keptEnd=b-br;
- for(let x=a;x<keptEnd;x++){let m=x%1440;if(m>=1320||m<300)cutN++;else cutD++}
- return {normal:cutD,night:cutN,total:cutD+cutN};
+ const a=mins(s.start); let b=mins(s.end); if(b<=a)b+=1440;
+ const paidEnd=Math.max(a,b-Math.max(0,Number(s.break)||0));
+ let normal=0,night=0;
+ for(let x=a;x<paidEnd;x++){const m=x%1440;if(m>=1320||m<300)night++;else normal++}
+ return {normal,night,total:normal+night};
 }
 function wage(s){let st=data.staff.find(x=>x.id===s.staffId);if(!st)return 0;let c=calc(s);return c.normal*st.rate/60+c.night*st.rate*1.25/60}
 function render(){
@@ -113,7 +119,7 @@ function render(){
 }
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 document.getElementById('add').onclick=()=>{let date=document.getElementById('date').value,staffId=document.getElementById('worker').value,start=document.getElementById('start').value,end=document.getElementById('end').value,br=Number(document.getElementById('break').value||0);if(!date||!staffId||!start||!end){alert('日付・スタッフ・時刻を入力してください。');return}if(br<0||br>1440){alert('休憩時間を確認してください。');return}data.shifts.push({id:crypto.randomUUID(),date,staffId,start,end,break:br});document.getElementById('workMonth').value=date.slice(0,7);save();alert('勤務を登録しました')};
-document.getElementById('saveStaff').onclick=()=>{let name=document.getElementById('staffName').value.trim(),rate=Number(document.getElementById('staffRate').value);if(!name||!Number.isFinite(rate)||rate<=0){alert('名前と正しい時給を入力してください。');return}if(editingStaff){let s=data.staff.find(x=>x.id===editingStaff);s.name=name;s.rate=rate;editingStaff=null;document.getElementById('saveStaff').textContent='スタッフを追加'}else{if(data.staff.length>=5){alert('登録できるスタッフは5人までです。');return}data.staff.push({id:crypto.randomUUID(),name,rate})}document.getElementById('staffName').value='';document.getElementById('staffRate').value='';save()};
+document.getElementById('saveStaff').onclick=()=>{let name=document.getElementById('staffName').value.trim(),rate=Number(document.getElementById('staffRate').value);if(!name||!Number.isFinite(rate)||rate<=0){alert('名前と正しい時給を入力してください。');return}if(editingStaff){let s=data.staff.find(x=>x.id===editingStaff);s.name=name;s.rate=rate;editingStaff=null;document.getElementById('saveStaff').textContent='スタッフを追加'}else{if(data.staff.length>=8){alert('登録できるスタッフは8人までです。');return}data.staff.push({id:crypto.randomUUID(),name,rate})}document.getElementById('staffName').value='';document.getElementById('staffRate').value='';save()};
 window.editStaff=id=>{let s=data.staff.find(x=>x.id===id);if(!s)return;editingStaff=id;document.getElementById('staffName').value=s.name;document.getElementById('staffRate').value=s.rate;document.getElementById('saveStaff').textContent='変更を保存';document.querySelector('[data-tab="staff"]').click()};
 window.delStaff=id=>{if(!confirm('このスタッフを削除しますか？勤務記録は残ります。'))return;data.staff=data.staff.filter(x=>x.id!==id);save()};
 window.delShift=id=>{if(!confirm('この勤務を削除しますか？'))return;data.shifts=data.shifts.filter(x=>x.id!==id);save()};

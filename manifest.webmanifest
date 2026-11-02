@@ -1,9 +1,1 @@
-{
-  "name": "かんたん給与管理",
-  "short_name": "給与管理",
-  "start_url": "./",
-  "display": "standalone",
-  "background_color": "#f3f5f9",
-  "theme_color": "#2457a7",
-  "icons": [{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
-}
+{"name":"かんたん給与管理","short_name":"給与管理","start_url":"./","display":"standalone","background_color":"#f3f5f9","theme_color":"#2457a7","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
