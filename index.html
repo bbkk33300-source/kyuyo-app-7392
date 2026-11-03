@@ -24,6 +24,16 @@ button{cursor:pointer;font-size:14px}
 .small{font-size:12px;color:#657188}
 table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;border-bottom:1px solid #e6eaf0;text-align:left}th{color:#59677d}
 .entry{border:1px solid #e1e6ef;border-radius:10px;padding:10px;margin:8px 0}
+.calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid #dce2ec;border-left:1px solid #dce2ec}
+.cal-head,.cal-day{min-width:0;border-right:1px solid #dce2ec;border-bottom:1px solid #dce2ec;padding:4px}
+.cal-head{text-align:center;font-size:11px;font-weight:700;background:#f0f3f8;color:#526078}
+.cal-day{min-height:86px;background:#fff;font-size:11px;overflow-wrap:anywhere}
+.cal-day.other{background:#f7f8fa;color:#a0a8b5}
+.cal-day.today{background:#eef5ff}
+.cal-date{font-weight:800;font-size:12px;margin-bottom:4px}
+.cal-shift{background:#eaf1ff;border-radius:4px;padding:3px;margin:3px 0;line-height:1.35;color:#18345e}
+.cal-empty{color:#b0b7c2;font-size:10px}
+@media(max-width:420px){.cal-day{min-height:76px;padding:3px 2px;font-size:10px}.cal-date{font-size:11px}.cal-shift{font-size:9px;padding:2px 1px}}
 .entry strong{display:block;margin-bottom:5px}
 .total{font-size:24px;font-weight:800;color:#2457a7}
 .danger{background:#fff0f0;color:#a32626}.muted{color:#69758a}
@@ -57,14 +67,14 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 <p class="small">出勤は15:00〜20:00、退勤は20:00〜翌2:00まで30分刻みで選べます。翌0:00以降は翌日表記で表示します。休憩時間は実際に取った時間を入力してください。</p>
 <div class="actions"><button class="primary" id="add">勤務を登録</button></div>
 </div>
-<div class="card"><h2>登録済みの勤務</h2><div class="row"><div><label>表示する月</label><input id="workMonth" type="month"></div></div><div id="entries"></div></div>
+<div class="card"><h2>月間シフトカレンダー</h2><div class="row"><div><label>表示する月</label><input id="workMonth" type="month"></div></div><p class="small">日にちごとに、スタッフ名と出勤・退勤時刻を表示します。</p><div id="shiftCalendar" class="calendar"></div></div><div class="card"><h2>登録済みの勤務一覧</h2><div id="entries"></div></div>
 </section>
 <section id="staff" class="tab hidden">
 <div class="card"><h2>スタッフを登録・編集</h2>
 <label>名前</label><input id="staffName" maxlength="20" placeholder="例：田中">
 <label>時給（円）</label><input id="staffRate" type="number" min="0" step="1" placeholder="例：1200">
 <div class="actions"><button class="primary" id="saveStaff">スタッフを追加</button></div>
-<p class="small">スタッフ名をタップすると編集できます。最大5人。</p><div id="staffList"></div>
+<p class="small">スタッフ名をタップすると編集できます。最大8人。</p><div id="staffList"></div>
 </div></section>
 <section id="summary" class="tab hidden">
 <div class="card"><h2>月別給与集計</h2><label>集計する月</label><input id="sumMonth" type="month">
@@ -102,6 +112,23 @@ fillTimes('start',starts,'16:00'); fillTimes('end',ends,'22:00');
 document.getElementById('workMonth').value=ym();document.getElementById('sumMonth').value=ym();
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.tab').forEach(x=>x.classList.add('hidden'));document.getElementById(b.dataset.tab).classList.remove('hidden');render()});
 function money(n){return Math.round(n).toLocaleString('ja-JP')+'円'}
+function displayTime(t){let [h,m]=t.split(':').map(Number);if(h>=24)return `翌${h-24}:${String(m).padStart(2,'0')}`;return `${h}:${String(m).padStart(2,'0')}`}
+function renderCalendar(month, shifts){
+ const [yy,mm]=month.split('-').map(Number), first=new Date(yy,mm-1,1), last=new Date(yy,mm,0), todayStr=today();
+ const labels=['日','月','火','水','木','金','土'];
+ let html=labels.map(x=>`<div class="cal-head">${x}</div>`).join('');
+ for(let i=0;i<first.getDay();i++)html+='<div class="cal-day other"></div>';
+ for(let day=1;day<=last.getDate();day++){
+  const date=`${month}-${String(day).padStart(2,'0')}`;
+  const dayShifts=shifts.filter(s=>s.date===date).sort((a,b)=>a.start.localeCompare(b.start));
+  html+=`<div class="cal-day ${date===todayStr?'today':''}"><div class="cal-date">${day}</div>`;
+  if(dayShifts.length){html+=dayShifts.map(s=>{const st=data.staff.find(x=>x.id===s.staffId);return `<div class="cal-shift"><b>${esc(st?.name||'削除済み')}</b><br>${esc(displayTime(s.start))}〜${esc(displayTime(s.end))}</div>`}).join('')}
+  else html+='<div class="cal-empty">—</div>';
+  html+='</div>';
+ }
+ const used=first.getDay()+last.getDate();for(let i=used;i%7!==0;i++)html+='<div class="cal-day other"></div>';
+ document.getElementById('shiftCalendar').innerHTML=html;
+}
 function mins(t){let [h,m]=t.split(':').map(Number);return h*60+m}
 function calc(s){
  const a=mins(s.start); let b=mins(s.end); if(b<=a)b+=1440;
@@ -115,6 +142,7 @@ function render(){
  let sel=document.getElementById('worker'),old=sel.value;sel.innerHTML='';
  data.staff.forEach(s=>{let o=document.createElement('option');o.value=s.id;o.textContent=s.name;sel.append(o)});if(old)sel.value=old;
  let month=document.getElementById('workMonth').value||ym(),list=data.shifts.filter(s=>s.date.startsWith(month)).sort((a,b)=>a.date.localeCompare(b.date));
+ renderCalendar(month,list);
  document.getElementById('entries').innerHTML=list.length?list.map(s=>{let st=data.staff.find(x=>x.id===s.staffId),c=calc(s);return `<div class="entry"><strong>${esc(s.date)}　${esc(st?.name||'削除済み')}</strong><div>${esc(s.start)}〜${esc(s.end)}　休憩${s.break}分</div><div class="small">通常 ${ (c.normal/60).toFixed(1)}時間／深夜 ${(c.night/60).toFixed(1)}時間</div><b>${money(wage(s))}</b><div class="actions"><button class="danger" onclick="delShift('${s.id}')">削除</button></div></div>`}).join(''):'<p class="muted">この月の勤務はまだありません。</p>';
  document.getElementById('staffList').innerHTML=data.staff.map(s=>`<div class="entry"><strong>${esc(s.name)}　${money(s.rate)}/時</strong><div class="actions"><button onclick="editStaff('${s.id}')">編集</button><button class="danger" onclick="delStaff('${s.id}')">削除</button></div></div>`).join('')||'<p class="muted">スタッフを登録してください。</p>';
  let sm=document.getElementById('sumMonth').value||ym(),sh=data.shifts.filter(s=>s.date.startsWith(sm)),out=data.staff.map(st=>{let own=sh.filter(s=>s.staffId===st.id),normal=0,night=0,total=0,days=new Set();own.forEach(s=>{let c=calc(s);normal+=c.normal;night+=c.night;total+=wage(s);days.add(s.date)});let normalPay=normal*st.rate/60,nightBase=night*st.rate/60,premium=night*st.rate*.25/60;return {st,own,days:days.size,normal,night,normalPay,nightBase,premium,total}}),all=out.reduce((a,x)=>a+x.total,0);
