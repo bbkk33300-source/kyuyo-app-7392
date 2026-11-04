@@ -52,6 +52,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 <button class="active" data-tab="work">勤務入力</button>
 <button data-tab="staff">スタッフ設定</button>
 <button data-tab="summary">給与集計</button>
+<button data-tab="settings">手当・特別設定</button>
 <button data-tab="backup">データ保存</button>
 </nav>
 <section id="work" class="tab">
@@ -67,23 +68,23 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 <p class="small">出勤は15:00〜20:00、退勤は20:00〜翌2:00まで30分刻みで選べます。翌0:00以降は翌日表記で表示します。休憩時間は実際に取った時間を入力してください。</p>
 <div class="actions"><button class="primary" id="add">勤務を登録</button></div>
 </div>
-<div class="card"><h2>月間シフトカレンダー</h2><div class="row"><div><label>表示する月</label><input id="workMonth" type="month"></div></div><p class="small">日にちごとに、スタッフ名と出勤・退勤時刻を表示します。</p><div id="shiftCalendar" class="calendar"></div></div><div class="card"><h2>登録済みの勤務一覧</h2><div id="entries"></div></div>
+<div class="card"><h2>月間シフトカレンダー</h2><div class="row"><div><label>表示する月</label><input id="workMonth" type="month"></div></div><p class="small">日にちごとに、スタッフ名と出勤・退勤時刻を表示します。</p><div id="shiftCalendar" class="calendar"></div></div><div class="card"><h2>登録済みの勤務一覧</h2><p class="small">勤務内容のみ表示します。給与金額は表示されません。</p><div id="entries"></div></div>
 </section>
 <section id="staff" class="tab hidden">
 <div class="card"><h2>スタッフを登録・編集</h2>
 <label>名前</label><input id="staffName" maxlength="20" placeholder="例：田中">
 <label>時給（円）</label><input id="staffRate" type="number" min="0" step="1" placeholder="例：1200">
-<label>正月手当（円）</label><input id="allowNewYear" type="number" min="0" step="1" value="0">
-<label>お盆手当（円）</label><input id="allowObon" type="number" min="0" step="1" value="0">
-<label>特別手当（円）</label><input id="allowSpecial" type="number" min="0" step="1" value="0">
-<p class="small">手当はスタッフごとに設定し、毎月の給与に加算します。不要な手当は0円にしてください。</p>
 <div class="actions"><button class="primary" id="saveStaff">スタッフを追加</button></div>
 <p class="small">スタッフ名をタップすると編集できます。最大8人。</p><div id="staffList"></div>
 </div></section>
 <section id="summary" class="tab hidden">
 <div class="card"><h2>月別給与集計</h2><label>集計する月</label><input id="sumMonth" type="month">
-<div id="summaryOut"></div><div class="actions"><button class="primary" id="printAll">8名分をまとめて印刷</button></div><p class="small">スタッフごとの「明細をコピー」で、給与明細をLINEなどに貼り付けられます。</p></div>
+<div id="periodLabel" class="small"></div><div id="summaryOut"></div><div id="summaryWorkList"></div><div class="actions"><button class="primary" id="confirmPayroll">この月の給与を確定・ロック</button><button id="printAll">8名分をまとめて印刷</button></div><p class="small">確定後は自動計算・勤務編集の対象外となり、金額は固定されます。</p></div>
 <div class="card"><h2>計算ルール</h2><p class="small">22:00〜翌5:00は深夜割増25%を加算します。通常時間は設定した時給、深夜時間は時給×1.25で計算します。残業割増・法定休日割増・税金等は含みません。</p></div>
+</section>
+<section id="settings" class="tab hidden">
+<div class="card"><h2>店舗・暗証番号の設定</h2><label>店舗名（給与明細に表示）</label><input id="storeName" maxlength="50" placeholder="店舗名"><div class="actions"><button class="primary" id="saveStore">店舗名を保存</button><button id="changePin">暗証番号を変更</button></div><p class="small">勤務入力以外の画面を開く際に暗証番号が必要です。</p></div>
+<div class="card"><h2>手当・交通費の設定</h2><label>対象の給与月</label><input id="allowMonth" type="month"><p class="small">スタッフごと・給与月ごとに入力します。0円の項目は明細に表示しません。</p><div id="allowanceInputs"></div></div>
 </section>
 <section id="backup" class="tab hidden">
 <div class="card"><h2>データのバックアップ</h2>
@@ -96,76 +97,63 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px 5px;b
 </main>
 <div id="printArea"></div>
 <script>
-const KEY='kantanKyuyo_v1';
-let data=load(), editingStaff=null;
-function load(){try{return JSON.parse(localStorage.getItem(KEY))||{staff:[],shifts:[]}}catch(e){return {staff:[],shifts:[]}}}
+const KEY='kantanKyuyo_v2';
+let data=load(), editingStaff=null, managerUnlocked=false;
+function load(){try{let d=JSON.parse(localStorage.getItem(KEY));if(!d){d=JSON.parse(localStorage.getItem('kantanKyuyo_v1'))||{staff:[],shifts:[]}}d.staff ||= [];d.shifts ||= [];d.settings ||= {storeName:'',pin:''};d.payroll ||= {};d.allowances ||= {};return d}catch(e){return {staff:[],shifts:[],settings:{storeName:'',pin:''},payroll:{},allowances:{}}}}
 function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
 function today(){let d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function ym(){return today().slice(0,7)}
+function period(month){let [y,m]=month.split('-').map(Number);let first=new Date(y,m-2,26),last=new Date(y,m-1,25);const f=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;return {start:f(first),end:f(last)}}
+function payrollKey(month,id){return `${month}__${id}`}
+function payrollMonthForDate(date){let [y,m,d]=date.split('-').map(Number);if(d>=26){m++;if(m===13){m=1;y++}}return `${y}-${String(m).padStart(2,'0')}`}
+function recordFor(month,id){return data.payroll[payrollKey(month,id)]||null}
+function locked(month){return Object.values(data.payroll).some(x=>x.month===month&&x.locked)}
+function ensureManager(){let pin=data.settings.pin;if(!pin){let a=prompt('店長用の暗証番号を新しく設定してください（4桁以上）');if(a===null)return false;if(a.length<4){alert('暗証番号は4桁以上にしてください。');return false}let b=prompt('確認のため、もう一度入力してください');if(a!==b){alert('暗証番号が一致しません。');return false}data.settings.pin=a;localStorage.setItem(KEY,JSON.stringify(data));managerUnlocked=true;return true}let v=prompt('店長用の暗証番号を入力してください');if(v!==pin){alert('暗証番号が違います。');return false}managerUnlocked=true;return true}
 document.getElementById('date').value=today();
-function fillTimes(id, values, selected){
- const el=document.getElementById(id);
- el.innerHTML=values.map(v=>`<option value="${v}">${v.startsWith('24:')?'翌0:'+v.slice(3):v.startsWith('25:')?'翌1:'+v.slice(3):v.startsWith('26:')?'翌2:'+v.slice(3):v}</option>`).join('');
- el.value=selected;
-}
-const starts=[];
-for(let m=15*60;m<=20*60;m+=30) starts.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));
-const ends=[];
-for(let m=20*60;m<=26*60;m+=30) ends.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));
-fillTimes('start',starts,'16:00'); fillTimes('end',ends,'22:00');
-document.getElementById('workMonth').value=ym();document.getElementById('sumMonth').value=ym();
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.tab').forEach(x=>x.classList.add('hidden'));document.getElementById(b.dataset.tab).classList.remove('hidden');render()});
-function money(n){return Math.round(n).toLocaleString('ja-JP')+'円'}
+function fillTimes(id, values, selected){const el=document.getElementById(id);el.innerHTML=values.map(v=>`<option value="${v}">${v.startsWith('24:')?'翌0:'+v.slice(3):v.startsWith('25:')?'翌1:'+v.slice(3):v.startsWith('26:')?'翌2:'+v.slice(3):v}</option>`).join('');el.value=selected}
+const starts=[];for(let m=15*60;m<=20*60;m+=30)starts.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));
+const ends=[];for(let m=20*60;m<=26*60;m+=30)ends.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));
+fillTimes('start',starts,'16:00');fillTimes('end',ends,'22:00');
+document.getElementById('workMonth').value=ym();document.getElementById('sumMonth').value=ym();document.getElementById('allowMonth').value=ym();
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{if(b.dataset.tab!=='work'&&!ensureManager())return;document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.tab').forEach(x=>x.classList.add('hidden'));document.getElementById(b.dataset.tab).classList.remove('hidden');render()});
+function money(n){return Math.round(n||0).toLocaleString('ja-JP')+'円'}
 function displayTime(t){let [h,m]=t.split(':').map(Number);if(h>=24)return `翌${h-24}:${String(m).padStart(2,'0')}`;return `${h}:${String(m).padStart(2,'0')}`}
-function renderCalendar(month, shifts){
- const [yy,mm]=month.split('-').map(Number), first=new Date(yy,mm-1,1), last=new Date(yy,mm,0), todayStr=today();
- const labels=['日','月','火','水','木','金','土'];
- let html=labels.map(x=>`<div class="cal-head">${x}</div>`).join('');
- for(let i=0;i<first.getDay();i++)html+='<div class="cal-day other"></div>';
- for(let day=1;day<=last.getDate();day++){
-  const date=`${month}-${String(day).padStart(2,'0')}`;
-  const dayShifts=shifts.filter(s=>s.date===date).sort((a,b)=>a.start.localeCompare(b.start));
-  html+=`<div class="cal-day ${date===todayStr?'today':''}"><div class="cal-date">${day}</div>`;
-  if(dayShifts.length){html+=dayShifts.map(s=>{const st=data.staff.find(x=>x.id===s.staffId);return `<div class="cal-shift"><b>${esc(st?.name||'削除済み')}</b><br>${esc(displayTime(s.start))}〜${esc(displayTime(s.end))}</div>`}).join('')}
-  else html+='<div class="cal-empty">—</div>';
-  html+='</div>';
- }
- const used=first.getDay()+last.getDate();for(let i=used;i%7!==0;i++)html+='<div class="cal-day other"></div>';
- document.getElementById('shiftCalendar').innerHTML=html;
-}
+function renderCalendar(month,shifts){const [yy,mm]=month.split('-').map(Number),first=new Date(yy,mm-1,1),last=new Date(yy,mm,0),todayStr=today(),labels=['日','月','火','水','木','金','土'];let html=labels.map(x=>`<div class="cal-head">${x}</div>`).join('');for(let i=0;i<first.getDay();i++)html+='<div class="cal-day other"></div>';for(let day=1;day<=last.getDate();day++){const date=`${month}-${String(day).padStart(2,'0')}`,ds=shifts.filter(s=>s.date===date).sort((a,b)=>a.start.localeCompare(b.start));html+=`<div class="cal-day ${date===todayStr?'today':''}"><div class="cal-date">${day}</div>`;html+=ds.length?ds.map(s=>{const st=data.staff.find(x=>x.id===s.staffId);return `<div class="cal-shift"><b>${esc(st?.name||'削除済み')}</b><br>${esc(displayTime(s.start))}〜${esc(displayTime(s.end))}</div>`}).join(''):'<div class="cal-empty">—</div>';html+='</div>'}let used=first.getDay()+last.getDate();for(let i=used;i%7!==0;i++)html+='<div class="cal-day other"></div>';document.getElementById('shiftCalendar').innerHTML=html}
 function mins(t){let [h,m]=t.split(':').map(Number);return h*60+m}
-function calc(s){
- const a=mins(s.start); let b=mins(s.end); if(b<=a)b+=1440;
- const paidEnd=Math.max(a,b-Math.max(0,Number(s.break)||0));
- let normal=0,night=0;
- for(let x=a;x<paidEnd;x++){const m=x%1440;if(m>=1320||m<300)night++;else normal++}
- return {normal,night,total:normal+night};
-}
+function calc(s){const a=mins(s.start);let b=mins(s.end);if(b<=a)b+=1440;const paidEnd=Math.max(a,b-Math.max(0,Number(s.break)||0));let normal=0,night=0;for(let x=a;x<paidEnd;x++){const m=x%1440;if(m>=1320||m<300)night++;else normal++}return {normal,night,total:normal+night}}
 function wage(s){let st=data.staff.find(x=>x.id===s.staffId);if(!st)return 0;let c=calc(s);return c.normal*st.rate/60+c.night*st.rate*1.25/60}
+function allowances(month,id){return data.allowances[payrollKey(month,id)]||{newyear:0,obon:0,special:0,transport:0,deduction:0}}
 function render(){
- let sel=document.getElementById('worker'),old=sel.value;sel.innerHTML='';
- data.staff.forEach(s=>{let o=document.createElement('option');o.value=s.id;o.textContent=s.name;sel.append(o)});if(old)sel.value=old;
- let month=document.getElementById('workMonth').value||ym(),list=data.shifts.filter(s=>s.date.startsWith(month)).sort((a,b)=>a.date.localeCompare(b.date));
- renderCalendar(month,list);
- document.getElementById('entries').innerHTML=list.length?list.map(s=>{let st=data.staff.find(x=>x.id===s.staffId),c=calc(s);return `<div class="entry"><strong>${esc(s.date)}　${esc(st?.name||'削除済み')}</strong><div>${esc(s.start)}〜${esc(s.end)}　休憩${s.break}分</div><div class="small">通常 ${ (c.normal/60).toFixed(1)}時間／深夜 ${(c.night/60).toFixed(1)}時間</div><b>${money(wage(s))}</b><div class="actions"><button class="danger" onclick="delShift('${s.id}')">削除</button></div></div>`}).join(''):'<p class="muted">この月の勤務はまだありません。</p>';
- document.getElementById('staffList').innerHTML=data.staff.map(s=>`<div class="entry"><strong>${esc(s.name)}　${money(s.rate)}/時</strong><div class="small">正月 ${money(s.allowances?.newYear||0)}／お盆 ${money(s.allowances?.obon||0)}／特別 ${money(s.allowances?.special||0)}</div><div class="actions"><button onclick="editStaff('${s.id}')">編集</button><button class="danger" onclick="delStaff('${s.id}')">削除</button></div></div>`).join('')||'<p class="muted">スタッフを登録してください。</p>';
- let sm=document.getElementById('sumMonth').value||ym(),sh=data.shifts.filter(s=>s.date.startsWith(sm)),out=data.staff.map(st=>{let own=sh.filter(s=>s.staffId===st.id),normal=0,night=0,workTotal=0,days=new Set();own.forEach(s=>{let c=calc(s);normal+=c.normal;night+=c.night;workTotal+=wage(s);days.add(s.date)});let normalPay=normal*st.rate/60,nightBase=night*st.rate/60,premium=night*st.rate*.25/60,allowances={newYear:Number(st.allowances?.newYear)||0,obon:Number(st.allowances?.obon)||0,special:Number(st.allowances?.special)||0},allowanceTotal=allowances.newYear+allowances.obon+allowances.special,total=workTotal+allowanceTotal;return {st,own,days:days.size,normal,night,normalPay,nightBase,premium,workTotal,allowances,allowanceTotal,total}}),all=out.reduce((a,x)=>a+x.total,0);
- document.getElementById('summaryOut').innerHTML=out.length?out.map((x,i)=>`<div class="entry"><strong>${esc(x.st.name)}</strong><div>出勤 ${x.days}日　通常 ${(x.normal/60).toFixed(1)}時間／深夜 ${(x.night/60).toFixed(1)}時間</div><div>勤務給与：${money(x.workTotal)}</div><div class="small">正月手当：${money(x.allowances.newYear)}／お盆手当：${money(x.allowances.obon)}／特別手当：${money(x.allowances.special)}</div><div>手当合計：${money(x.allowanceTotal)}</div><div class="total">支給合計：${money(x.total)}</div><div class="actions"><button onclick="copySlip(${i})">明細をコピー</button></div></div>`).join('')+`<hr><p>全員合計</p><div class="total">${money(all)}</div>`:'<p class="muted">スタッフを登録してください。</p>';
- document.getElementById('printArea').innerHTML=out.map(x=>slipHtml(x,sm)).join('');
- window.currentSlips=out.map(x=>slipText(x,sm));
+ let sel=document.getElementById('worker'),old=sel.value;sel.innerHTML='';data.staff.forEach(s=>{let o=document.createElement('option');o.value=s.id;o.textContent=s.name;sel.append(o)});if(old)sel.value=old;
+ let wm=document.getElementById('workMonth').value||ym(),wl=data.shifts.filter(s=>s.date.startsWith(wm)).sort((a,b)=>a.date.localeCompare(b.date));renderCalendar(wm,wl);
+ document.getElementById('entries').innerHTML=wl.length?wl.map(s=>{let st=data.staff.find(x=>x.id===s.staffId),c=calc(s);return `<div class="entry"><strong>${esc(s.date)}　${esc(st?.name||'削除済み')}</strong><div>${esc(displayTime(s.start))}〜${esc(displayTime(s.end))}　休憩${s.break}分</div><div class="small">通常 ${(c.normal/60).toFixed(1)}時間／深夜 ${(c.night/60).toFixed(1)}時間</div><div class="actions"><button class="danger" onclick="delShift('${s.id}')">削除</button></div></div>`}).join(''):'<p class="muted">この月の勤務はまだありません。</p>';
+ document.getElementById('staffList').innerHTML=data.staff.map(s=>`<div class="entry"><strong>${esc(s.name)}　${money(s.rate)}/時</strong><div class="actions"><button onclick="editStaff('${s.id}')">編集</button><button class="danger" onclick="delStaff('${s.id}')">削除</button></div></div>`).join('')||'<p class="muted">スタッフを登録してください。</p>';
+ let sm=document.getElementById('sumMonth').value||ym(),per=period(sm),isLocked=locked(sm);document.getElementById('periodLabel').textContent=`集計期間：${per.start} ～ ${per.end} ／ ${sm.slice(0,4)}年${Number(sm.slice(5))}月分の給与`;
+ let sh=data.shifts.filter(s=>s.date>=per.start&&s.date<=per.end),out=data.staff.map(st=>{let own=sh.filter(s=>s.staffId===st.id),normal=0,night=0,days=new Set();own.forEach(s=>{let c=calc(s);normal+=c.normal;night+=c.night;days.add(s.date)});let normalPay=normal*st.rate/60,nightBase=night*st.rate/60,premium=night*st.rate*.25/60,base=normalPay+nightBase+premium,a=allowances(sm,st.id),allowanceTotal=Number(a.newyear||0)+Number(a.obon||0)+Number(a.special||0)+Number(a.transport||0),gross=base+allowanceTotal,deduction=Number(a.deduction||0),net=gross-deduction,rec=recordFor(sm,st.id);if(rec?.locked)return {...rec,st,own,locked:true,allowances:rec.allowances||{},days:rec.days||0};return {st,own,days:days.size,normal,night,normalPay,nightBase,premium,total:gross,base,allowances:a,allowanceTotal,deduction,net,locked:false}});
+ let all=out.reduce((a,x)=>a+x.total,0),netAll=out.reduce((a,x)=>a+x.net,0);
+ document.getElementById('summaryOut').innerHTML=out.length?out.map((x,i)=>`<div class="entry"><strong>${esc(x.st.name)} ${x.locked?'<span class="muted">（確定済み・ロック中）</span>':''}</strong><div>出勤 ${x.days}日　通常 ${(x.normal/60).toFixed(1)}時間／深夜 ${(x.night/60).toFixed(1)}時間</div><div>基本給与：${money(x.base)}</div>${x.allowances.newyear>0?`<div>正月手当：${money(x.allowances.newyear)}</div>`:''}${x.allowances.obon>0?`<div>お盆手当：${money(x.allowances.obon)}</div>`:''}${x.allowances.special>0?`<div>特別手当：${money(x.allowances.special)}</div>`:''}${x.allowances.transport>0?`<div>交通費：${money(x.allowances.transport)}</div>`:''}<div>支給合計：<b>${money(x.total)}</b></div><div>控除額：<input type="number" min="0" step="1" value="${x.deduction}" ${x.locked?'disabled':''} onchange="setAllowance('${sm}','${x.st.id}','deduction',this.value)"></div><div class="total">差引支給額：${money(x.net)}</div><div class="actions"><button onclick="copySlip(${i})">明細をコピー</button></div></div>`).join('')+`<hr><p>全員の支給合計：<b>${money(all)}</b></p><div class="total">全員の手取り合計：${money(netAll)}</div>`:'<p class="muted">スタッフを登録してください。</p>';
+ document.getElementById('summaryWorkList').innerHTML='<div class="card"><h2>勤務一覧（金額確認用・店長専用）</h2>'+sh.map(s=>{let st=data.staff.find(x=>x.id===s.staffId);return `<div class="entry">${esc(s.date)}　${esc(st?.name||'削除済み')}　${esc(displayTime(s.start))}〜${esc(displayTime(s.end))}　<b>${money(wage(s))}</b></div>`}).join('')+'</div>';
+ document.getElementById('confirmPayroll').disabled=isLocked;document.getElementById('confirmPayroll').textContent=isLocked?'この月は確定済みです':'この月の給与を確定・ロック';
+ document.getElementById('printArea').innerHTML=out.map(x=>slipHtml(x,sm)).join('');window.currentSlips=out.map(x=>slipText(x,sm));
+ renderAllowances();document.getElementById('storeName').value=data.settings.storeName||'';
 }
+function renderAllowances(){let m=document.getElementById('allowMonth').value||ym();document.getElementById('allowanceInputs').innerHTML=data.staff.map(st=>{let a=allowances(m,st.id);return `<div class="entry"><strong>${esc(st.name)}</strong><div class="grid">${[['newyear','正月手当'],['obon','お盆手当'],['special','特別手当'],['transport','交通費'],['deduction','控除額（所得税など）']].map(([k,l])=>`<div><label>${l}（円）</label><input type="number" min="0" step="1" value="${Number(a[k]||0)}" onchange="setAllowance('${m}','${st.id}','${k}',this.value)"></div>`).join('')}</div></div>`}).join('')||'<p class="muted">先にスタッフを登録してください。</p>'}
+window.setAllowance=(m,id,k,v)=>{if(locked(m)){alert('確定済みの給与は変更できません。');render();return}let a=allowances(m,id);a[k]=Math.max(0,Number(v)||0);data.allowances[payrollKey(m,id)]=a;localStorage.setItem(KEY,JSON.stringify(data));render()};
 
-function slipText(x,month){return `給与明細\n対象月：${month}\nスタッフ：${x.st.name}\n出勤日数：${x.days}日\n通常勤務：${(x.normal/60).toFixed(1)}時間　${money(x.normalPay)}\n深夜勤務：${(x.night/60).toFixed(1)}時間　${money(x.nightBase)}\n深夜割増（25%）：${money(x.premium)}\n勤務給与：${money(x.workTotal)}\n正月手当：${money(x.allowances.newYear)}\nお盆手当：${money(x.allowances.obon)}\n特別手当：${money(x.allowances.special)}\n手当合計：${money(x.allowanceTotal)}\n支給合計：${money(x.total)}\n※税金・社会保険・交通費等は含みません。`}
-function slipHtml(x,month){return `<section class="slip"><h2>給与明細</h2><p>対象月：${esc(month)}</p><p>スタッフ：<b>${esc(x.st.name)}</b></p><p>出勤日数：${x.days}日</p><table><tr><th>項目</th><th>時間</th><th>金額</th></tr><tr><td>通常勤務</td><td>${(x.normal/60).toFixed(1)}時間</td><td>${money(x.normalPay)}</td></tr><tr><td>深夜勤務（基本分）</td><td>${(x.night/60).toFixed(1)}時間</td><td>${money(x.nightBase)}</td></tr><tr><td>深夜割増（25%）</td><td>—</td><td>${money(x.premium)}</td></tr><tr><td>正月手当</td><td>—</td><td>${money(x.allowances.newYear)}</td></tr><tr><td>お盆手当</td><td>—</td><td>${money(x.allowances.obon)}</td></tr><tr><td>特別手当</td><td>—</td><td>${money(x.allowances.special)}</td></tr><tr><td>勤務給与・手当合計</td><td>—</td><td>${money(x.workTotal+x.allowanceTotal)}</td></tr></table><div class="amount">支給合計：${money(x.total)}</div><p class="small">※税金・社会保険・交通費・残業割増・法定休日割増等は含みません。</p></section>`}
+function slipText(x,month){let a=x.allowances||{};let lines=[`${data.settings.storeName||'店舗名未設定'}　給与明細`,`対象月：${month.slice(5)}月分（${period(month).start}～${period(month).end}）`,`スタッフ：${x.st.name}`,`出勤日数：${x.days}日`,`通常勤務：${(x.normal/60).toFixed(1)}時間　${money(x.normalPay)}`,`深夜勤務：${(x.night/60).toFixed(1)}時間　${money(x.nightBase)}`,`深夜割増（25%）：${money(x.premium)}`];[['newyear','正月手当'],['obon','お盆手当'],['special','特別手当'],['transport','交通費']].forEach(([k,l])=>{if(Number(a[k]||0)>0)lines.push(`${l}：${money(a[k])}`)});lines.push(`支給合計：${money(x.total)}`,`控除額：${money(x.deduction)}`,`差引支給額（手取り）：${money(x.net)}`);return lines.join('\n')}
+function slipHtml(x,month){let a=x.allowances||{},rows=[`<tr><td>通常勤務</td><td>${(x.normal/60).toFixed(1)}時間</td><td>${money(x.normalPay)}</td></tr>`,`<tr><td>深夜勤務（基本分）</td><td>${(x.night/60).toFixed(1)}時間</td><td>${money(x.nightBase)}</td></tr>`,`<tr><td>深夜割増（25%）</td><td>—</td><td>${money(x.premium)}</td></tr>`];[['newyear','正月手当'],['obon','お盆手当'],['special','特別手当'],['transport','交通費']].forEach(([k,l])=>{if(Number(a[k]||0)>0)rows.push(`<tr><td>${l}</td><td>—</td><td>${money(a[k])}</td></tr>`)});return `<section class="slip"><h2>${esc(data.settings.storeName||'給与明細')}</h2><p>給与明細　${Number(month.slice(5))}月分</p><p>対象期間：${period(month).start} ～ ${period(month).end}</p><p>スタッフ：<b>${esc(x.st.name)}</b></p><p>出勤日数：${x.days}日</p><table><tr><th>項目</th><th>時間</th><th>金額</th></tr>${rows.join('')}</table><div class="amount">支給合計：${money(x.total)}<br>控除額：${money(x.deduction)}<br>差引支給額（手取り）：${money(x.net)}</div></section>`}
 window.copySlip=async i=>{let text=window.currentSlips?.[i];if(!text)return;try{await navigator.clipboard.writeText(text);alert('給与明細をコピーしました。LINEなどに貼り付けできます。')}catch(e){let t=document.createElement('textarea');t.value=text;document.body.append(t);t.select();let ok=document.execCommand('copy');t.remove();alert(ok?'給与明細をコピーしました。':'コピーできませんでした。ブラウザのコピー機能を使ってください。')}};
 document.getElementById('printAll').onclick=()=>{if(!data.staff.length){alert('スタッフを登録してください。');return}window.print()};
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-document.getElementById('add').onclick=()=>{let date=document.getElementById('date').value,staffId=document.getElementById('worker').value,start=document.getElementById('start').value,end=document.getElementById('end').value,br=Number(document.getElementById('break').value||0);if(!date||!staffId||!start||!end){alert('日付・スタッフ・時刻を入力してください。');return}if(br<0||br>1440){alert('休憩時間を確認してください。');return}data.shifts.push({id:crypto.randomUUID(),date,staffId,start,end,break:br});document.getElementById('workMonth').value=date.slice(0,7);save();alert('勤務を登録しました')};
-document.getElementById('saveStaff').onclick=()=>{let name=document.getElementById('staffName').value.trim(),rate=Number(document.getElementById('staffRate').value),allowances={newYear:Number(document.getElementById('allowNewYear').value)||0,obon:Number(document.getElementById('allowObon').value)||0,special:Number(document.getElementById('allowSpecial').value)||0};if(!name||!Number.isFinite(rate)||rate<=0){alert('名前と正しい時給を入力してください。');return}if(Object.values(allowances).some(v=>v<0)){alert('手当は0円以上で入力してください。');return}if(editingStaff){let s=data.staff.find(x=>x.id===editingStaff);s.name=name;s.rate=rate;s.allowances=allowances;editingStaff=null;document.getElementById('saveStaff').textContent='スタッフを追加'}else{if(data.staff.length>=8){alert('登録できるスタッフは8人までです。');return}data.staff.push({id:crypto.randomUUID(),name,rate,allowances})}['staffName','staffRate','allowNewYear','allowObon','allowSpecial'].forEach(id=>document.getElementById(id).value=id==='staffName'?'':id==='allowNewYear'||id==='allowObon'||id==='allowSpecial'?'0':'');save()};
-window.editStaff=id=>{let s=data.staff.find(x=>x.id===id);if(!s)return;editingStaff=id;document.getElementById('staffName').value=s.name;document.getElementById('staffRate').value=s.rate;document.getElementById('allowNewYear').value=s.allowances?.newYear||0;document.getElementById('allowObon').value=s.allowances?.obon||0;document.getElementById('allowSpecial').value=s.allowances?.special||0;document.getElementById('saveStaff').textContent='変更を保存';document.querySelector('[data-tab="staff"]').click()};
+document.getElementById('add').onclick=()=>{let date=document.getElementById('date').value,staffId=document.getElementById('worker').value,start=document.getElementById('start').value,end=document.getElementById('end').value,br=Number(document.getElementById('break').value||0);if(!date||!staffId||!start||!end){alert('日付・スタッフ・時刻を入力してください。');return}let py=payrollMonthForDate(date);if(locked(py)){alert('この勤務日の給与月は確定済みです。登録できません。');return}if(br<0||br>1440){alert('休憩時間を確認してください。');return}data.shifts.push({id:crypto.randomUUID(),date,staffId,start,end,break:br});document.getElementById('workMonth').value=date.slice(0,7);save();alert('勤務を登録しました')};
+document.getElementById('saveStaff').onclick=()=>{let name=document.getElementById('staffName').value.trim(),rate=Number(document.getElementById('staffRate').value);if(!name||!Number.isFinite(rate)||rate<=0){alert('名前と正しい時給を入力してください。');return}if(editingStaff){let s=data.staff.find(x=>x.id===editingStaff);s.name=name;s.rate=rate;editingStaff=null;document.getElementById('saveStaff').textContent='スタッフを追加'}else{if(data.staff.length>=8){alert('登録できるスタッフは8人までです。');return}data.staff.push({id:crypto.randomUUID(),name,rate})}document.getElementById('staffName').value='';document.getElementById('staffRate').value='';save()};
+window.editStaff=id=>{let s=data.staff.find(x=>x.id===id);if(!s)return;editingStaff=id;document.getElementById('staffName').value=s.name;document.getElementById('staffRate').value=s.rate;document.getElementById('saveStaff').textContent='変更を保存';document.querySelector('[data-tab="staff"]').click()};
 window.delStaff=id=>{if(!confirm('このスタッフを削除しますか？勤務記録は残ります。'))return;data.staff=data.staff.filter(x=>x.id!==id);save()};
-window.delShift=id=>{if(!confirm('この勤務を削除しますか？'))return;data.shifts=data.shifts.filter(x=>x.id!==id);save()};
-['workMonth','sumMonth'].forEach(id=>document.getElementById(id).onchange=render);
+window.delShift=id=>{let sh=data.shifts.find(x=>x.id===id);if(sh){let py=payrollMonthForDate(sh.date);if(locked(py)){alert('確定済み給与に含まれる勤務は削除できません。');return}}if(!confirm('この勤務を削除しますか？'))return;data.shifts=data.shifts.filter(x=>x.id!==id);save()};
+['workMonth','sumMonth'].forEach(id=>document.getElementById(id).onchange=render);document.getElementById('allowMonth').onchange=renderAllowances;
+document.getElementById('saveStore').onclick=()=>{data.settings.storeName=document.getElementById('storeName').value.trim();save();alert('店舗名を保存しました。')};
+document.getElementById('changePin').onclick=()=>{let old=prompt('現在の暗証番号');if(old!==data.settings.pin){alert('暗証番号が違います。');return}let n=prompt('新しい暗証番号（4桁以上）');if(!n||n.length<4){alert('4桁以上で設定してください。');return}let c=prompt('確認のため、もう一度入力してください');if(n!==c){alert('一致しません。');return}data.settings.pin=n;localStorage.setItem(KEY,JSON.stringify(data));alert('暗証番号を変更しました。')};
+document.getElementById('confirmPayroll').onclick=()=>{let m=document.getElementById('sumMonth').value||ym();if(locked(m)){alert('すでに確定済みです。');return}if(!confirm(`${m}月分の給与を確定し、ロックします。確定後は変更できません。よろしいですか？`))return;let p=period(m),sh=data.shifts.filter(s=>s.date>=p.start&&s.date<=p.end);data.staff.forEach(st=>{let own=sh.filter(s=>s.staffId===st.id),normal=0,night=0,days=new Set();own.forEach(s=>{let c=calc(s);normal+=c.normal;night+=c.night;days.add(s.date)});let normalPay=normal*st.rate/60,nightBase=night*st.rate/60,premium=night*st.rate*.25/60,a=allowances(m,st.id),base=normalPay+nightBase+premium,allowanceTotal=['newyear','obon','special','transport'].reduce((v,k)=>v+Number(a[k]||0),0),gross=base+allowanceTotal,deduction=Number(a.deduction||0);data.payroll[payrollKey(m,st.id)]={month:m,staffId:st.id,staffName:st.name,days:days.size,normal,night,normalPay,nightBase,premium,base,allowances:a,total:gross,deduction,net:gross-deduction,locked:true}});save();alert('給与を確定しました。');};
 document.getElementById('export').onclick=()=>{let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='かんたん給与管理バックアップ.json';a.click();URL.revokeObjectURL(a.href)};
 document.getElementById('importBtn').onclick=()=>document.getElementById('file').click();
 document.getElementById('file').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let x=JSON.parse(await f.text());if(!Array.isArray(x.staff)||!Array.isArray(x.shifts))throw Error();if(!confirm('現在のデータを読み込んだ内容に置き換えますか？'))return;data=x;save();alert('読み込みました')}catch(_){alert('ファイルを読み込めません。正しいバックアップを選んでください。')}e.target.value=''};
